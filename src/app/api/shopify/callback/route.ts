@@ -1,87 +1,134 @@
 import crypto from "crypto";
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-interface CallbackParams {
-  code: string;
-  shop: string;
-  state: string;
-  hmac: string;
-  timestamp: string;
+const SHOPIFY_API_VERSION = "2025-07";
+const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY!;
+const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET!;
+const APP_UI_URL = "https://1caaea172bc5.ngrok-free.app/dashboard";
+
+function isValidShopDomain(shop: string) {
+  return /^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/.test(shop);
 }
 
-export const GET = async (req: Request) => {
-  const { searchParams } = new URL(req.url);
-  // extract all expected params
-  const params = ["code", "shop", "state", "hmac", "timestamp"].reduce(
-    (acc, key) => ({ ...acc, [key]: searchParams.get(key) }),
-    {}
-  ) as Record<string, string | null>;
+export async function GET(request: NextRequest) {
+  try {
+    const url = new URL(request.url);
+    const params = Object.fromEntries(url.searchParams.entries());
+    const { hmac, code, shop, state } = params;
 
-  // 1. CSRF/state check
-  const cookieStore = cookies();
-  const stored = cookieStore.get("shopify_oauth_state")?.value;
-  if (!params.state || params.state !== stored) {
-    return NextResponse.json({ error: "Invalid state" }, { status: 403 });
-  }
+    const cookieState = request.cookies.get("shopify_oauth_state")?.value;
+    if (!state || !cookieState || state !== cookieState) {
+      return NextResponse.json({ error: "Invalid state parameter" }, { status: 400 });
+    }
 
-  // 2. HMAC verification
-  const { hmac, ...hmacData } = params;
-  const message = Object.keys(hmacData)
-    .sort()
-    .map((key) => `${key}=${hmacData[key]}`)
-    .join("&");
-  const generated = crypto
-    .createHmac("sha256", process.env.SHOPIFY_API_SECRET!)
-    .update(message)
-    .digest("hex");
-  if (generated !== hmac) {
-    return NextResponse.json(
-      { error: "HMAC validation failed" },
-      { status: 400 }
-    );
-  }
+    const { hmac: _hmac, ...rest } = params;
+    const sortedParams = Object.keys(rest).sort().map((key) => `${key}=${rest[key]}`).join("&");
+    const generatedHmac = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(sortedParams).digest("hex");
 
-  // 3. Exchange code for access token
-  const tokenRes = await fetch(
-    `https://${params.shop}/admin/oauth/access_token`,
-    {
+    if (generatedHmac !== hmac) {
+      return NextResponse.json({ error: "HMAC validation failed" }, { status: 401 });
+    }
+
+    if (!shop || !isValidShopDomain(shop)) {
+      return NextResponse.json({ error: "Invalid shop domain" }, { status: 400 });
+    }
+
+    const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        client_id: process.env.SHOPIFY_API_KEY,
-        client_secret: process.env.SHOPIFY_API_SECRET,
-        code: params.code,
+        client_id: SHOPIFY_API_KEY,
+        client_secret: SHOPIFY_API_SECRET,
+        code,
       }),
-    }
-  );
-  const { access_token } = await tokenRes.json();
+    });
 
-  // 4. Fetch and sync store data
-  // Example: fetch basic shop info
-  const shopInfoRes = await fetch(
-    `https://${params.shop}/admin/api/2025-04/shop.json`,
-    {
-      headers: { "X-Shopify-Access-Token": access_token },
+    if (!tokenRes.ok) {
+      const errorText = await tokenRes.text();
+      console.error("Token request failed:", tokenRes.status, errorText);
+      return NextResponse.json({ error: "Failed to get access token" }, { status: 401 });
     }
-  );
-  const shopData = await shopInfoRes.json();
-  // TODO: You can also fetch products, orders, customers, etc.
-  // Example: call your own service to persist
-  if (params.shop) {
-    await syncStoreData(params.shop, access_token, shopData);
+    
+    const tokenData = await tokenRes.json();
+    const { access_token, scope: grantedScopes, associated_user } = tokenData;
+    console.log("Access Token:", access_token);
+
+    // 6. Fetch store details via Admin GraphQL API
+    const graphqlQuery = {
+      query: `
+        query {
+          shop {
+            name
+            myshopifyDomain
+            primaryDomain { 
+              url 
+              host 
+            }
+          }
+        }
+      `,
+    };
+
+    console.log("GraphQL Query:", JSON.stringify(graphqlQuery, null, 2));
+    
+    const storeRes = await fetch(
+      `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": access_token,
+        },
+        body: JSON.stringify(graphqlQuery),
+      }
+    );
+
+    if (!storeRes.ok) {
+      const errorText = await storeRes.text();
+      console.error("GraphQL request failed:", storeRes.status, storeRes.statusText, errorText);
+      throw new Error(`GraphQL fetch failed: ${errorText}`);
+    }
+
+    console.log("Store Response:", storeRes.status, storeRes.statusText);
+
+    const storeJson = await storeRes.json();
+    
+    if (storeJson.errors) {
+      console.error("GraphQL errors:", storeJson.errors);
+      throw new Error(`GraphQL errors: ${JSON.stringify(storeJson.errors)}`);
+    }
+    
+    const shopData = storeJson.data?.shop;
+    
+    if (!shopData) {
+      console.error("No shop data in response:", storeJson);
+      throw new Error("No shop data received from GraphQL API");
+    }
+
+    console.log("Shop Data:", shopData);
+
+    // 7. Extract required fields
+    const storeUsername = associated_user?.email || '';
+    const storeName = shopData.name;
+    const storeUrl = shopData.primaryDomain?.url || '';
+    const storeSubdomain = shopData.myshopifyDomain;
+
+    console.log("Extracted shop info:", {
+      storeUsername,
+      storeName,
+      storeUrl,
+      storeSubdomain,
+      grantedScopes
+    });
+
+    // 8. Save shop, access_token, and associated_user to your database
+    // await saveShopToDatabase({ shop, access_token, associated_user, grantedScopes });
+    // <-- Implement your DB logic here
+
+    // 9. Redirect to your app UI
+    return NextResponse.redirect(APP_UI_URL, 302);
+  } catch (error: any) {
+    console.error("Error during Shopify OAuth callback:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-
-  // 5. Redirect into your dashboard
-  const dashboardUrl = `${
-    process.env.APP_HOST
-  }/dashboard?shop=${encodeURIComponent(params.shop || "")}`;
-  return NextResponse.redirect(dashboardUrl);
-};
-
-// placeholder – replace with your real DB/API integration
-async function syncStoreData(shopDomain: string, token: string, shopData: any) {
-  // e.g. your ORM or fetch to your backend
-  console.log("Syncing store:", shopDomain, shopData);
-  // await prisma.store.upsert({ … })
 }
