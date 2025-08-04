@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 const SHOPIFY_API_VERSION = "2025-07";
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY!;
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET!;
-const APP_UI_URL = "https://1caaea172bc5.ngrok-free.app/dashboard";
+const APP_UI_URL = "https://fb85504c8d58.ngrok-free.app/dashboard";
 
 function isValidShopDomain(shop: string) {
   return /^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/.test(shop);
