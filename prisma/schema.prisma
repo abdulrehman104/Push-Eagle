@@ -1,21 +1,178 @@
-generator client {
-  provider = "prisma-client-js"
-  // output   = "../src/generated/prisma"
-}
+// schema.prisma
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model Store {
-  id            Int      @id @default(autoincrement())
-  username      String   @unique
-  name          String
-  storeURL      String   @unique
-  shopifyDomain String   @unique
-  platform      String // e.g. "Shopify"
-  accessToken   String? // Shopify access token (encrypted in production)
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Merchant {
+  id            String   @id @default(uuid()) @db.Uuid
+  accessToken   String?
+  Username      String   @unique
+  StoreName     String
+  storeUrl      String
+  subdomain     String   @unique
+  storeImageUrl String?
+  platform      String   @default("Shopify") // e.g. "Shopify"
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  subscribers Subscriber[]
+  // segments    Segment[]
+  // campaigns   Campaign[]
+  // automations Automation[]
 }
+
+// enum DeviceUsed {
+//   mobile
+//   desktop
+//   tablet
+// }
+
+// enum OS {
+//   Android
+//   iOS
+//   Windows
+//   macOS
+//   Linux
+// }
+// enum Browser {
+//   Chrome
+//   Firefox
+//   Safari
+//   Edge
+//   Opera
+//   Other
+// }
+
+model Subscriber {
+  id              String   @id @default(uuid()) @db.Uuid
+  merchantId      String   @db.Uuid
+  name            String?
+  subscriptionId  String   @unique
+  browser         String // BrowserUsed
+  deviceType      String // DeviceUsed
+  platform        String // OS
+  locationCity    String?
+  locationCountry String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId])
+  @@index([subscriptionId])
+}
+
+// enum SendingOption {
+//   send_now
+//   schedule
+// }
+
+// enum CampaignType {
+//   regular
+//   flash_sale
+// }
+
+// enum Status {
+//   draft
+//   scheduled
+//   sent
+// }
+
+// model Campaign {
+//   id               String        @id @default(uuid()) @db.Uuid
+//   merchantId       String        @db.Uuid
+//   segmentId        String?       @db.Uuid
+//   title            String
+//   message          String        @db.Text
+//   destinationUrl   String
+//   imageUrl         String?
+//   actionButtons    Json          @db.JsonB
+//   sendingOption    SendingOption
+//   scheduleTime     DateTime?
+//   campaignType     CampaignType
+//   smartDelivery    Boolean       @default(false)
+//   status           Status        @default(draft)
+//   impressions      Int           @default(0)
+//   clicks           Int           @default(0)
+//   ctr              Decimal       @default(0) @db.Decimal(10, 4)
+//   revenueGenerated Decimal       @default(0) @db.Decimal(12, 2)
+//   createdAt        DateTime      @default(now())
+//   updatedAt        DateTime      @updatedAt
+
+//   merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+//   segment  Segment? @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+
+//   @@index([merchantId])
+//   @@index([segmentId])
+//   @@index([scheduleTime])
+//   @@index([actionButtons], type: Gin)
+// }
+
+// model Segment {
+//   id         String   @id @default(uuid()) @db.Uuid
+//   merchantId String   @db.Uuid
+//   name       String
+//   criteria   Json     @db.JsonB
+//   createdAt  DateTime @default(now())
+//   updatedAt  DateTime @updatedAt
+
+//   merchant  Merchant   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+//   campaigns Campaign[]
+
+//   @@index([merchantId])
+//   @@index([criteria], type: Gin)
+// }
+
+// enum AutomationType {
+//   welcome
+//   abandoned_cart
+//   browse_abandonment
+//   shipping_notification
+//   back_in_stock
+//   price_drop
+// }
+
+// model Automation {
+//   id             String         @id @default(uuid()) @db.Uuid
+//   merchantId     String         @db.Uuid
+//   name           String
+//   type           AutomationType
+//   triggerRules   Json           @db.JsonB
+//   actionTemplate Json           @db.JsonB
+//   isActive       Boolean        @default(true)
+//   createdAt      DateTime       @default(now())
+//   updatedAt      DateTime       @updatedAt
+
+//   merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+//   @@index([merchantId])
+//   @@index([triggerRules], type: Gin)
+// }
+
+// // generator client {
+// //   provider = "prisma-client-js"
+// //   // output   = "../src/generated/prisma"
+// // }
+
+// // datasource db {
+// //   provider = "postgresql"
+// //   url      = env("DATABASE_URL")
+// // }
+
+// // model Store {
+// //   id            Int      @id @default(autoincrement())
+// //   username      String   @unique
+// //   name          String
+// //   storeURL      String   @unique
+// //   shopifyDomain String   @unique
+// //   platform      String // e.g. "Shopify"
+// //   accessToken   String? // Shopify access token (encrypted in production)
+// //   createdAt     DateTime @default(now())
+// //   updatedAt     DateTime @updatedAt
+// // }

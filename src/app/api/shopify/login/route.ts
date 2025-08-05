@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 const SCOPES = process.env.SHOPIFY_SCOPES!;
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY!;
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET!;
-const REDIRECT_URI = "https://fb85504c8d58.ngrok-free.app/api/shopify/callback";
+const REDIRECT_URI = "https://6a367e233aa9.ngrok-free.app/api/shopify/callback";
 
 export async function GET(request: NextRequest) {
   try {

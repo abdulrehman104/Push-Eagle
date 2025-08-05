@@ -1,10 +1,11 @@
 import crypto from "crypto";
+import db from "@/lib/prismaClient";
 import { NextRequest, NextResponse } from "next/server";
 
 const SHOPIFY_API_VERSION = "2025-07";
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY!;
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET!;
-const APP_UI_URL = "https://fb85504c8d58.ngrok-free.app/dashboard";
+const APP_UI_URL = "https://6a367e233aa9.ngrok-free.app/login";
 
 function isValidShopDomain(shop: string) {
   return /^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/.test(shop);
@@ -51,9 +52,9 @@ export async function GET(request: NextRequest) {
     
     const tokenData = await tokenRes.json();
     const { access_token, scope: grantedScopes, associated_user } = tokenData;
-    console.log("Access Token:", access_token);
+    
 
-    // 6. Fetch store details via Admin GraphQL API
+    // Fetch store details via Admin GraphQL API
     const graphqlQuery = {
       query: `
         query {
@@ -68,8 +69,6 @@ export async function GET(request: NextRequest) {
         }
       `,
     };
-
-    console.log("GraphQL Query:", JSON.stringify(graphqlQuery, null, 2));
     
     const storeRes = await fetch(
       `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
@@ -89,8 +88,6 @@ export async function GET(request: NextRequest) {
       throw new Error(`GraphQL fetch failed: ${errorText}`);
     }
 
-    console.log("Store Response:", storeRes.status, storeRes.statusText);
-
     const storeJson = await storeRes.json();
     
     if (storeJson.errors) {
@@ -99,31 +96,32 @@ export async function GET(request: NextRequest) {
     }
     
     const shopData = storeJson.data?.shop;
+
+    console.log("Shop data:", shopData);
     
     if (!shopData) {
       console.error("No shop data in response:", storeJson);
       throw new Error("No shop data received from GraphQL API");
     }
 
-    console.log("Shop Data:", shopData);
-
-    // 7. Extract required fields
-    const storeUsername = associated_user?.email || '';
+    // Extract required fields
     const storeName = shopData.name;
     const storeUrl = shopData.primaryDomain?.url || '';
     const storeSubdomain = shopData.myshopifyDomain;
-
-    console.log("Extracted shop info:", {
-      storeUsername,
-      storeName,
-      storeUrl,
-      storeSubdomain,
-      grantedScopes
+    
+    const fullEmail = associated_user?.email || '';
+    const storeUsername = fullEmail.split('@')[0] || '';
+    
+    // Add Data to the database
+    await db.merchant.create({
+      data: {
+        accessToken: access_token,
+        Username: storeUsername,
+        StoreName: storeName,
+        storeUrl: storeUrl,
+        subdomain: storeSubdomain,
+      }
     });
-
-    // 8. Save shop, access_token, and associated_user to your database
-    // await saveShopToDatabase({ shop, access_token, associated_user, grantedScopes });
-    // <-- Implement your DB logic here
 
     // 9. Redirect to your app UI
     return NextResponse.redirect(APP_UI_URL, 302);
